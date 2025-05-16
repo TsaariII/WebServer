@@ -92,7 +92,7 @@ void eventLoop(std::vector<ServerConfig> serverConfigs)
                 }
                 if (eventLog[i].events & EPOLLOUT)
                 {
-                    std::cout << "EPOLLIN" << std::endl;
+                    std::cout << "EPOLLOUT" << std::endl;
                     client.timestamp = std::chrono::steady_clock::now();
                     handleClientSend(client, loop);
                 }
@@ -160,6 +160,99 @@ static int findOldestClient(std::map<int, Client>& clients)
     return oldestClient;
 }
 
+static bool isUnsignedLongLong(std::string str) 
+{
+    std::stringstream ss(str);
+    long long unsigned value; 
+    ss >> value; 
+    return !ss.fail();
+}
+
+static long long unsigned StrToUnsignedLongLong(std::string str) 
+{
+    std::stringstream ss(str);
+    long long unsigned value; 
+    ss >> value;
+    return value;
+}
+
+
+static bool validateChunkedBody(Client &client)
+{
+    long long unsigned bytes;
+    std::string str = client.chunkBuffer;
+    while (true)
+    {
+        if (!isUnsignedLongLong(str))
+        {
+            return false;
+        }
+        bytes = StrToUnsignedLongLong(str);
+        int i = 0;
+        while (str[i] != '\r')
+        {
+            if (!::isdigit(str[i]))
+                return false;
+            i++;
+        }
+        if (bytes == 0)
+        {
+            if (str.substr(1, 4) == "\r\n\r\n")
+                return true;
+            else
+                return false;
+        }
+        if (str[i + 1] != '\n')
+            return false;
+        str = str.substr(i + 2);
+        str = str.substr(bytes);
+        if (str.substr(0, 2) != "\r\n")
+            return false;
+        else
+            str = str.substr(2);
+    }
+    return true;
+}
+
+static void readChunkedBody(Client &client, int loop)
+{
+    client.chunkBuffer += client.rawReadData;
+    client.rawReadData.clear();
+
+    if (client.chunkBuffer.size() >= 5 && client.chunkBuffer.substr(client.chunkBuffer.size() - 5) == "0\r\n\r\n")
+    {
+        validateChunkedBody(client);
+        client.state = SEND;  // Kaikki chunkit luettu
+        client.request.body = client.chunkBuffer;  // Tallenna body
+        client.chunkBuffer = "";
+        client.response = RequestHandler::handleRequest(client);
+        if (client.response.getStatusCode() >= 400)
+            client.response = client.response.generateErrorResponse(client.response);
+        client.writeBuffer = client.response.toString();
+        client.state = SEND;
+        toggleEpollEvents(client.fd, loop, EPOLLOUT);
+        return;
+    }
+}
+
+static void checkBody(Client &client, int loop)
+{
+    if (client.request.headers["Transfer-Encoding"] == "chunked")
+        readChunkedBody(client, loop);
+    else if (client.rawReadData.size() >= stoul(client.request.headers["Content-Length"])) //or end of chunks?
+    {
+        client.request.body = client.rawReadData;
+        client.response = RequestHandler::handleRequest(client);
+        if (client.response.getStatusCode() >= 400)
+            client.response = client.response.generateErrorResponse(client.response);
+        client.writeBuffer = client.response.toString();
+        client.state = SEND;
+        toggleEpollEvents(client.fd, loop, EPOLLOUT);
+        return ;
+    }
+}
+
+
 static void handleClientRecv(Client& client, int loop)
 {
     switch (client.state)
@@ -202,12 +295,15 @@ static void handleClientRecv(Client& client, int loop)
                 if (headerEnd != std::string::npos) 
                 {
                         client.headerString = client.rawReadData.substr(0, headerEnd + 4);
-                        client.headerString[client.headerString.size()] = '\0'; 
                         client.request = HTTPRequest(client.headerString);
                         client.bytesRead = 0;
                         client.rawReadData = client.rawReadData.substr(headerEnd + 4);
                         if (client.request.method == "POST")
+                        {
                             client.state = READ_BODY;
+                            checkBody(client, loop);
+                            return;
+                        }
                         else
                         {
                             client.state = SEND;
@@ -227,21 +323,18 @@ static void handleClientRecv(Client& client, int loop)
 
         case READ_BODY:
         {
-            std::cout << "IN READ_BODY" << std::endl;
-            if (client.rawReadData.size() >= stoul(client.request.headers["Content-Length"])) //or end of chunks?
-            {
-                client.request.body = client.rawReadData;
-                client.response = RequestHandler::handleRequest(client);
-                if (client.response.getStatusCode() >= 400)
-                    client.response = client.response.generateErrorResponse(client.response);
-                client.writeBuffer = client.response.toString();
-                client.state = SEND;
-                toggleEpollEvents(client.fd, loop, EPOLLOUT);
-                return ;
-            }
             client.bytesRead = 0;
             char buffer2[READ_BUFFER_SIZE];
             client.bytesRead = recv(client.fd, buffer2, sizeof(buffer2) - 1, MSG_DONTWAIT);
+            if (client.bytesRead == 0)
+            {
+				// Client disconnected
+                std::cout << "ClientFD disconnected " << client.fd << std::endl;
+                close(client.fd);
+                client.erase = true;
+                epoll_ctl(loop, EPOLL_CTL_DEL, client.fd, nullptr);
+                return ;
+            }
             if (client.bytesRead < 0)
             {
                 close(client.fd);
@@ -253,6 +346,7 @@ static void handleClientRecv(Client& client, int loop)
             buffer2[client.bytesRead] = '\0';
             std::string temp(buffer2, client.bytesRead);
             client.rawReadData += temp;
+            checkBody(client, loop);
         }
 
 		case SEND:

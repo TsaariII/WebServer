@@ -249,7 +249,8 @@ HTTPResponse RequestHandler::handlePOST(Client& client)
     std::string key = client.request.path.substr(0, client.request.path.find_last_of("/") + 1);
     std::cout << "Key: " << key << std::endl;
     std::string path = "." + client.serverInfo.routes[key].abspath + client.request.file;
-    // std::cout << "Path: " << path << std::endl;
+    std::cout << "Path: " << path << std::endl;
+    std::cout << "Client request file" << client.request.file << std::endl;
     std::ofstream out(path.c_str(), std::ios::binary);
     if (!out.is_open())
     {

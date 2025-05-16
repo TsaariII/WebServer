@@ -39,6 +39,8 @@ class Client {
         HTTPRequest request;
         HTTPResponse response;
 
+        std::string chunkBuffer;     // Väliaikainen bufferi chunkin lukemista varten
+        
         Client();
         Client(const Client& copy);
         Client& operator=(const Client& copy);

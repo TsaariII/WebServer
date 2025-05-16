@@ -11,12 +11,6 @@
 
 Logger wslog;
 
-
-/* bool checkmethods(std::string allowedmethods, std::string methods)
-{
-
-} */
-
 int main(int argc, char *argv[])
 {
     if (argc != 2)
