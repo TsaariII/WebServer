@@ -378,8 +378,8 @@ HTTPResponse RequestHandler::handleRequest(Client& client)
             return HTTPResponse(403, "Whitespace in filename");
     }
     std::string fullPath = "." + join_paths(client.serverInfo.routes[client.request.location].abspath, client.request.file);
-    wslog.writeToLogFile(DEBUG, "location is " + client.request.location, true);
-    wslog.writeToLogFile(DEBUG, "Request handler fullpath is " + fullPath, true);
+    // wslog.writeToLogFile(DEBUG, "location is " + client.request.location, true);
+    // wslog.writeToLogFile(DEBUG, "Request handler fullpath is " + fullPath, true);
     if (client.serverInfo.routes.find(client.request.location) == client.serverInfo.routes.end())
         return HTTPResponse(404, "Invalid file name");
     bool validFile = false;
