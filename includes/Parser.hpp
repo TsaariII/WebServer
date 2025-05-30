@@ -18,7 +18,7 @@ Koodi | Nimi | Käyttötarkoitus
 308 | Permanent Redirect | Kuten 301, mutta metodit säilyvät
 */
 
-struct Redirect 
+struct Redirect
 {
     int status_code;              // Status koodi redirectionille
     std::string target_url;       // Esim. url uuteen osoitteeseen esim /new
@@ -38,7 +38,7 @@ struct Route
     size_t client_max_body_size;
 };
 
-struct ServerConfig 
+struct ServerConfig
 {
     std::string host;
     std::string port;
