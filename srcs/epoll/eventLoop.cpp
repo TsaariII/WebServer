@@ -278,66 +278,70 @@ static long long unsigned HexStrToUnsignedLongLong(std::string str)
 
 static bool validateChunkedBody(Client &client)
 {
-    long long unsigned bytes;
-    std::string str = client.chunkBuffer;
-     // Log the start (first 20 chars) and end (last 20 chars) of the buffer
-    size_t logLen = 20;
-    std::string start = str.substr(0, std::min(logLen, str.size()));
-    std::string end = str.size() > logLen ? str.substr(str.size() - logLen) : str;
-    wslog.writeToLogFile(DEBUG, "chunkBuffer start: {" + start + "}", true);
-    wslog.writeToLogFile(DEBUG, "chunkBuffer end: {" + end + "}", true);
-    if (!isHexUnsignedLongLong(str))
+    while (client.chunkBuffer.empty() == false)
     {
-        wslog.writeToLogFile(DEBUG, "triggered here1 ", true);
-        return false;
-    }
-    bytes = HexStrToUnsignedLongLong(str);
-    long long unsigned i = 0;
-    while (str[i] != '\r' && i < str.size())
-    {
-        if (!std::isxdigit(str[i]))
+        long long unsigned bytes;
+        std::string str = client.chunkBuffer;
+        // Log the start (first 20 chars) and end (last 20 chars) of the buffer
+        size_t logLen = 20;
+        std::string start = str.substr(0, std::min(logLen, str.size()));
+        std::string end = str.size() > logLen ? str.substr(str.size() - logLen) : str;
+        wslog.writeToLogFile(DEBUG, "chunkBuffer start: {" + start + "}", true);
+        wslog.writeToLogFile(DEBUG, "chunkBuffer end: {" + end + "}", true);
+        if (!isHexUnsignedLongLong(str))
         {
-            wslog.writeToLogFile(DEBUG, "triggered here2 ", true);
+            wslog.writeToLogFile(DEBUG, "triggered here1 ", true);
             return false;
         }
-        i++;
-    }
-    if (bytes == 0)
-    {
-        if (str.substr(1, 4) == "\r\n\r\n")
-            return true;
+        bytes = HexStrToUnsignedLongLong(str);
+        long long unsigned i = 0;
+        while (str[i] != '\r' && i < str.size())
+        {
+            if (!std::isxdigit(str[i]))
+            {
+                wslog.writeToLogFile(DEBUG, "triggered here2 ", true);
+                return false;
+            }
+            i++;
+        }
+        if (bytes == 0)
+        {
+            if (str.substr(1, 4) == "\r\n\r\n")
+                return true;
+            else
+            {
+                wslog.writeToLogFile(DEBUG, "triggered here3 ", true);
+                return false;
+            }
+        }
+        if (str.size() > (i + 1) && (str[i + 1] != '\n'))
+        {
+            wslog.writeToLogFile(DEBUG, "triggered here4 ", true);
+            return false;
+        }
+        str = str.substr(i + 2);
+        if (client.request.tempFileOpen == true) 
+        {
+            // Write existing body to file
+
+            write(client.request.BodyFd, str.substr(0, bytes).data(), bytes);
+        }
         else
+            client.request.body += str.substr(0, bytes); // add the validated bytes to the request body
+        str = str.substr(bytes);
+        if (str.substr(0, 2) != "\r\n")
         {
-            wslog.writeToLogFile(DEBUG, "triggered here3 ", true);
+            wslog.writeToLogFile(DEBUG, "str.substr(0, 2) = {" + str.substr(0, 2) + "}", true);
+            wslog.writeToLogFile(DEBUG, "counter = " + std::to_string(i), true);
+            wslog.writeToLogFile(DEBUG, "bytes = " + std::to_string(bytes), true);
+            //wslog.writeToLogFile(DEBUG, "str = {" + str + "}", true);
+            wslog.writeToLogFile(DEBUG, "triggered here5 ", true);
             return false;
         }
+        else
+            str = str.substr(2);
+        client.chunkBuffer.erase(0, i + 2 + bytes + 2);
     }
-    if (str.size() > (i + 1) && (str[i + 1] != '\n'))
-    {
-        wslog.writeToLogFile(DEBUG, "triggered here4 ", true);
-        return false;
-    }
-    str = str.substr(i + 2);
-    if (client.request.tempFileOpen == true) 
-    {
-        // Write existing body to file
-        write(client.request.BodyFd, str.substr(0, bytes).data(), bytes);
-    }
-    else
-        client.request.body += str.substr(0, bytes); // add the validated bytes to the request body
-    str = str.substr(bytes);
-    if (str.substr(0, 2) != "\r\n")
-    {
-        wslog.writeToLogFile(DEBUG, "str.substr(0, 2) = {" + str.substr(0, 2) + "}", true);
-        wslog.writeToLogFile(DEBUG, "counter = " + std::to_string(i), true);
-        wslog.writeToLogFile(DEBUG, "bytes = " + std::to_string(bytes), true);
-        //wslog.writeToLogFile(DEBUG, "str = {" + str + "}", true);
-        wslog.writeToLogFile(DEBUG, "triggered here5 ", true);
-        return false;
-    }
-    else
-        str = str.substr(2);
-    client.chunkBuffer.erase(0, i + 2 + bytes + 2);
     return true;
 }
 
@@ -481,8 +485,9 @@ static void handleCGI(Client& client, int loop)
 
 static void readChunkedBody(Client &client, int loop)
 {
-    if (client.chunkBuffer.size() > BODY_MEMORY_LIMIT)
+    if ((client.chunkBuffer.size() + client.rawReadData.size()) > BODY_MEMORY_LIMIT)
     {
+        client.chunkBuffer += client.rawReadData;
         if (client.request.tempFileOpen == false)
         {
             std::ostringstream oss;
@@ -495,19 +500,12 @@ static void readChunkedBody(Client &client, int loop)
                 wslog.writeToLogFile(ERROR, "Failed to open temporary body file", true);
                 return ;
             }
-            write (client.request.BodyFd, client.chunkBuffer.data(), client.chunkBuffer.size());
-            wslog.writeToLogFile(DEBUG, "Chunked body too large, writing to temporary file: " + tempfilename, true);
             client.request.tempFileOpen = true;
-        }
-        else
-        {
-            wslog.writeToLogFile(DEBUG, "Chunked body too large, writing to temporary file: " + client.request.tempBodyFile, true);
-            write(client.request.BodyFd, client.rawReadData.data(), client.rawReadData.size());
         }
     }
     else
         client.chunkBuffer += client.rawReadData;
-    if (client.chunkBuffer.empty() || client.chunkBuffer.size() < 2 || client.chunkBuffer.substr(client.chunkBuffer.size() - 2) != "\r\n")
+    if (client.rawReadData.empty() || client.rawReadData.size() < 2 || client.rawReadData.substr(client.rawReadData.size() - 2) != "\r\n")
     {
         //wslog.writeToLogFile(DEBUG, "Chunk buffer is empty or does not end with \\r\\n, waiting for more data", true);
         return ;
