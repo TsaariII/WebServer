@@ -11,6 +11,10 @@ HTTPRequest::HTTPRequest() {}
 
 HTTPRequest::HTTPRequest(std::string headers, ServerConfig server)
 {
+    tempBodyFile = "/tmp/webserv_temp_body_file";
+    tempFileOpen = false;
+    BodyFd = -1; // Initialize BodyFd to -1
+    isCGI = false;
     parser(headers, server);
 }
 

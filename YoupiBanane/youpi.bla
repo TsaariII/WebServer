@@ -22,5 +22,5 @@ with open("/tmp/cgi_was_run.txt", "a") as f:
 
     sys.stdout.write("Content-Type: text/plain\r\n\r\n")
     sys.stdout.flush()
-    print("{}". body)
+    print("{}".format(body))
     f.write("Read {} bytes from stdin.\n".format(len(body)))

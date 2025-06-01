@@ -1,10 +1,15 @@
 #include "CGIhandler.hpp"
 #include <limits.h>
+#include <fcntl.h>
+#include <sys/stat.h>
 
 std::string join_paths(std::filesystem::path path1, std::filesystem::path path2);
 
-CGIHandler::CGIHandler() {
-
+CGIHandler::CGIHandler() 
+{
+	writeFileOpen = false;
+	cgiReady = false;
+	cgiTempFile = "/tmp/webserv_temp_cgi_file";
 }
 
 int CGIHandler::getWritePipe() { return writeCGIPipe[1]; }
@@ -45,8 +50,21 @@ void CGIHandler::setEnvValues(HTTPRequest& request, ServerConfig server)
 					"SERVER_PORT=" + server.port};
 	std::string conType =  request.headers.count("Content-Type") > 0 ? request.headers.at("Content-Type") : "text/plain";
 	envVariables.push_back("CONTENT_TYPE=" + conType);
-	std::string conLen = request.headers.count("Content-Length") > 0 ? request.headers.at("Content-Length") : "0";
-	envVariables.push_back("CONTENT_LENGTH=" + conLen);
+	if (request.headers.count("Transfer-Encoding") > 0 &&
+		request.headers.at("Transfer-Encoding") == "chunked" &&
+		request.BodyFd != -1)
+	{
+		struct stat st;
+		if (stat(request.tempBodyFile.c_str(), &st) == 0)
+			envVariables.push_back("CONTENT_LENGTH=" + std::to_string(st.st_size));
+		else
+			envVariables.push_back("CONTENT_LENGTH=0");
+	}
+	else
+	{
+		std::string conLen = request.headers.count("Content-Length") > 0 ? request.headers.at("Content-Length") : "0";
+		envVariables.push_back("CONTENT_LENGTH=" + conLen);
+	}
 	for (size_t i = 0; i < envVariables.size(); i++)
 	{
 		envArray[i] = (char *)envVariables.at(i).c_str();
@@ -131,11 +149,28 @@ int CGIHandler::executeCGI(HTTPRequest& request, ServerConfig server)
 {
 	// wslog.writeToLogFile(DEBUG, "CGIHandler::executeCGI called", true);
 	// wslog.writeToLogFile(DEBUG, "CGIHandler::executeCGI fullPath is: " + fullPath, true);
+	// wslog.writeToLogFile(DEBUG, "CGIHandler::executeCGI pipes created", true);
+	if (request.tempFileOpen)
+	{
+		cgiTempFile = "/tmp/webserv_temp_cgi_response_file";
+		tempBodyFd = open(cgiTempFile.c_str(), O_RDWR | O_CREAT | O_TRUNC, 0666);
+		if (tempBodyFd == -1)
+		{
+			wslog.writeToLogFile(ERROR, "Failed to create temporary file for CGI body", true);
+			return -1;
+		}
+		writeFileFd = tempBodyFd;
+		readFileFd = request.BodyFd;
+	}
+	else
+	{
+		if (pipe(writeCGIPipe) == -1 || pipe(readCGIPipe) == -1)
+			return -1;
+	}
+	// needs to be here because of the way of setEnvValues it checks the body length of file if its chunked request
+	setEnvValues(request, server);
 	if (access(fullPath.c_str(), X_OK) != 0)
 		return -1; // ERROR PAGE access forbidden
-	if (pipe(writeCGIPipe) == -1 || pipe(readCGIPipe) == -1)
-		return -1;
-	// wslog.writeToLogFile(DEBUG, "CGIHandler::executeCGI pipes created", true);
 	childPid = fork();
 	if (childPid != 0)
 		// wslog.writeToLogFile(DEBUG, "CGIHandler::executeCGI childPid is: " + std::to_string(childPid), true);
@@ -143,17 +178,37 @@ int CGIHandler::executeCGI(HTTPRequest& request, ServerConfig server)
 		return -1;
 	if (childPid == 0)
 	{
-		dup2(writeCGIPipe[0], STDIN_FILENO);
-		dup2(readCGIPipe[1], STDOUT_FILENO);
-		close(writeCGIPipe[1]);
-		close(readCGIPipe[0]);
+		if (request.tempFileOpen)
+		{
+			// wslog.writeToLogFile(DEBUG, "CGIHandler::executeCGI child process using temp file", true);
+			dup2(readFileFd, STDIN_FILENO);
+			dup2(writeFileFd, STDOUT_FILENO);
+		}
+		else
+		{
+			dup2(writeCGIPipe[0], STDIN_FILENO);
+			dup2(readCGIPipe[1], STDOUT_FILENO);
+			close(writeCGIPipe[1]);
+			close(readCGIPipe[0]);
+		}
 		execve(server.routes[request.location].cgiexecutable.c_str(), exceveArgs, envArray);
 		// std::cout << "I WILL NOT GET HERE IF CHILD SCRIPT WAS SUCCESSFUL\n";
 		_exit(1);
 	}
 	// childPid = childPid;
-	close(writeCGIPipe[0]);
-	close(readCGIPipe[1]);
+	if (request.tempFileOpen == false)
+	{
+		close(writeCGIPipe[0]);
+		close(readCGIPipe[1]);
+	}
+	else
+	{
+		// Close the write and read end file descriptors from parents file descriptor table
+		// the file descriptor table is copied but the underlying file descriptors are shared
+		// so we need to close the read and write ends in the parent process
+		close(readFileFd);
+		close(writeFileFd);
+	}
 	return readCGIPipe[0];
 }
 

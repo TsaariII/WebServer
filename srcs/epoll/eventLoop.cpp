@@ -5,6 +5,8 @@
 #include "RequestHandler.hpp"
 #include "CGIhandler.hpp"
 #include "Logger.hpp"
+#include <fcntl.h>
+
 
 bool        validateHeader(HTTPRequest req);
 void        eventLoop(std::vector<ServerConfig> servers);
@@ -316,7 +318,13 @@ static bool validateChunkedBody(Client &client)
         return false;
     }
     str = str.substr(i + 2);
-    client.request.body += str.substr(0, bytes); // add the validated bytes to the request body
+    if (client.request.tempFileOpen == true) 
+    {
+        // Write existing body to file
+        write(client.request.BodyFd, str.substr(0, bytes).data(), bytes);
+    }
+    else
+        client.request.body += str.substr(0, bytes); // add the validated bytes to the request body
     str = str.substr(bytes);
     if (str.substr(0, 2) != "\r\n")
     {
@@ -347,51 +355,119 @@ static bool checkMethods(Client &client, int loop)
         return true;
 }
 
+static void handleCGIWriteToPipe(Client& client)
+{
+    wslog.writeToLogFile(DEBUG, "Handling CGI write for client FD: " + std::to_string(client.fd), true);
+    if (client.CGI.writeCGIPipe[1] != -1 && client.CGI.isFdWritable(client.CGI.writeCGIPipe[1]))
+    {
+        ssize_t written = write(client.CGI.writeCGIPipe[1], client.request.body.c_str(), client.request.body.size());
+        wslog.writeToLogFile(DEBUG, "Writing to CGI pipe bytes written: " + std::to_string(written), true);
+        if (written <= 0) 
+        {
+            wslog.writeToLogFile(DEBUG, "write() failed: " + std::string(strerror(errno)), true);
+        }
+        else
+            client.request.body = client.request.body.substr(written);
+    }
+    if (client.request.body.empty() && client.CGI.writeCGIPipe[1] != -1) 
+    {
+        close(client.CGI.writeCGIPipe[1]);
+        client.CGI.writeCGIPipe[1] = -1;
+    }
+}
+
+static void handleCGIReadFromPipe(Client& client)
+{
+    wslog.writeToLogFile(DEBUG, "Handling CGI read for client FD: " + std::to_string(client.fd), true);
+    if (client.CGI.readCGIPipe[0] != -1 && client.CGI.isFdReadable(client.CGI.readCGIPipe[0]))
+    {
+        char buffer[10000];
+        ssize_t n;
+        n = read(client.CGI.readCGIPipe[0], buffer, client.CGI.output.size());
+        if (n > 0)
+        {
+            client.CGI.output.append(buffer, n);
+            wslog.writeToLogFile(DEBUG, "Read from CGI pipe bytes: " + std::to_string(n), true);
+        }
+        else if (n == 0)
+        {
+            close(client.CGI.readCGIPipe[0]);
+            client.CGI.readCGIPipe[0] = -1;
+        }
+        else
+        {
+            wslog.writeToLogFile(DEBUG, "read() failed: " + std::string(strerror(errno)), true);
+        }
+    }
+}
+
+static void handleCGIReadFromFile(Client& client)
+{
+    wslog.writeToLogFile(DEBUG, "Handling CGI read from file for client FD: " + std::to_string(client.fd), true);
+    
+    if (client.CGI.writeFileOpen == false)
+    {
+        client.CGI.writeFileFd = open(client.CGI.cgiTempFile.c_str(), O_RDONLY, 0644);
+        if (client.CGI.writeFileFd < 0)
+        {
+            wslog.writeToLogFile(ERROR, "Failed to open temporary CGI file for reading from server", true);
+            return ;
+        }
+        client.CGI.writeFileOpen = true;
+    }
+    if (client.CGI.writeFileFd != -1 && client.CGI.isFdReadable(client.CGI.writeFileFd))
+    {
+        char buffer[10000];
+        ssize_t n;
+        n = read(client.CGI.writeFileFd, buffer, sizeof(buffer));
+        if (n > 0)
+        {
+            client.CGI.output.append(buffer, n);
+            wslog.writeToLogFile(DEBUG, "Read from CGI file bytes: " + std::to_string(n), true);
+        }
+        else if (n == 0)
+        {
+            close(client.CGI.writeFileFd);
+            client.CGI.writeFileOpen = false;
+            close(client.CGI.readFileFd);
+            client.CGI.writeFileFd = -1;
+            client.CGI.readFileFd = -1;
+            client.CGI.cgiReady = true;
+        }
+        else
+        {
+            wslog.writeToLogFile(DEBUG, "read() failed: " + std::string(strerror(errno)), true);
+        }
+    }
+}
+
 static void handleCGI(Client& client, int loop)
 {
     wslog.writeToLogFile(DEBUG, "Handling CGI for client FD: " + std::to_string(client.fd), true);
     pid_t pid = waitpid(client.CGI.childPid, NULL, WNOHANG);
     wslog.writeToLogFile(DEBUG, "cgi.childPid is: " + std::to_string(client.CGI.childPid), true);
     wslog.writeToLogFile(DEBUG, "waitpid returned: " + std::to_string(pid), true);
-    const char* data = client.request.body.c_str();
-    ssize_t written;
-    if (client.CGI.isFdWritable(client.CGI.writeCGIPipe[1]))
+    if (client.request.tempFileOpen == false)
     {
-        if (!client.request.body.empty())
-        {
-            written = write(client.CGI.writeCGIPipe[1], data, 300);
-            wslog.writeToLogFile(DEBUG, "Writing to CGI pipe bytes written" + std::to_string(written), true);
-            if (written <= 0) 
-            {
-                wslog.writeToLogFile(DEBUG, "write() failed: " + std::string(strerror(errno)), true);
-            }
-            else
-                client.request.body = client.request.body.substr(written);
-        }
-        if (client.request.body.empty() && client.CGI.writeCGIPipe[1] != -1) 
-        {
-            close(client.CGI.writeCGIPipe[1]);
-            client.CGI.writeCGIPipe[1] = -1;
-        }
-    }
-    if (client.CGI.isFdReadable(client.CGI.readCGIPipe[0]))
-    {
-        char buffer[4096];
-        ssize_t n;
-        wslog.writeToLogFile(DEBUG, "Reading CGI output", true);
-        n = read(client.CGI.readCGIPipe[0], buffer, sizeof(buffer));
-        if (n > 0)
-            client.CGI.output.append(buffer, n);
-        wslog.writeToLogFile(DEBUG, "Read from CGI bytes: " + std::to_string(n), true);
+        handleCGIWriteToPipe(client);
+        handleCGIReadFromPipe(client);
     }
     if (pid == client.CGI.childPid)
     {
         wslog.writeToLogFile(DEBUG, "CGIHandler::executeCGI pipes closed", true);
-        close(client.CGI.readCGIPipe[0]);
-        wslog.writeToLogFile(DEBUG, "CGI process finished", true);
-        client.CGI.collectCGIOutput(client.pipeFd);
-        client.response.push_back(client.CGI.generateCGIResponse());
-        client.CGI.output.clear();
+        if (client.request.tempFileOpen == false)
+            handleCGIReadFromPipe(client);
+        else
+        {
+            handleCGIReadFromFile(client);
+            wslog.writeToLogFile(DEBUG, "CGI process finished", true);
+            client.CGI.generateCGIResponse();
+            client.state = SEND;
+            nChildren--;
+            toggleEpollEvents(client.fd, loop, EPOLLOUT);
+            client.request.isCGI = false;
+            return ;
+        }
         client.state = SEND;
         // IT SEEMS THAT CGI EXTENSION RULE TAKES PRECEDENCE OVER IS ALLOWED METHOD RULES IN LOCATION
         // SO IF THE EXTENSION IS CORRECT IT SHOULD BE EXECUTED EVEN IF THE METHOD IS NOT ALLOWED
@@ -405,8 +481,32 @@ static void handleCGI(Client& client, int loop)
 
 static void readChunkedBody(Client &client, int loop)
 {
-    client.chunkBuffer += client.rawReadData;
-    client.rawReadData.clear();
+    if (client.chunkBuffer.size() > BODY_MEMORY_LIMIT)
+    {
+        if (client.request.tempFileOpen == false)
+        {
+            std::ostringstream oss;
+            oss << client.request.tempBodyFile.data() << "_" << std::time(NULL) << "_" << rand();
+            std::string tempfilename = oss.str();
+            client.request.tempBodyFile = tempfilename;
+            client.request.BodyFd = open(client.request.tempBodyFile.c_str(), O_RDWR | O_CREAT | O_TRUNC, 0644);
+            if (client.request.BodyFd < 0)
+            {
+                wslog.writeToLogFile(ERROR, "Failed to open temporary body file", true);
+                return ;
+            }
+            write (client.request.BodyFd, client.chunkBuffer.data(), client.chunkBuffer.size());
+            wslog.writeToLogFile(DEBUG, "Chunked body too large, writing to temporary file: " + tempfilename, true);
+            client.request.tempFileOpen = true;
+        }
+        else
+        {
+            wslog.writeToLogFile(DEBUG, "Chunked body too large, writing to temporary file: " + client.request.tempBodyFile, true);
+            write(client.request.BodyFd, client.rawReadData.data(), client.rawReadData.size());
+        }
+    }
+    else
+        client.chunkBuffer += client.rawReadData;
     if (client.chunkBuffer.empty() || client.chunkBuffer.size() < 2 || client.chunkBuffer.substr(client.chunkBuffer.size() - 2) != "\r\n")
     {
         //wslog.writeToLogFile(DEBUG, "Chunk buffer is empty or does not end with \\r\\n, waiting for more data", true);
@@ -440,15 +540,24 @@ static void readChunkedBody(Client &client, int loop)
         return ;
     } */
 
-    if (client.chunkBuffer.size() >= 5 && client.chunkBuffer.substr(client.chunkBuffer.size() - 5) == "0\r\n\r\n")
+    if (client.rawReadData.size() >= 5 && client.rawReadData.substr(client.rawReadData.size() - 5) == "0\r\n\r\n")
     {
-        client.request.body = client.chunkBuffer;  // Tallenna body
+        if (client.request.tempFileOpen == true)
+        {
+            close(client.request.BodyFd);
+            // opening again to reset the fd position to start after writing to there
+            client.request.BodyFd = open(client.request.tempBodyFile.c_str(), O_RDONLY, 0644);
+            if (client.request.BodyFd < 0)
+            {
+                wslog.writeToLogFile(ERROR, "Failed to open temporary body file", true);
+                return ;
+            }
+        }
         client.chunkBuffer = "";
         if (client.request.isCGI == true)
         {
             wslog.writeToLogFile(DEBUG, "Handling CGI after chunked body", true);
             client.state = HANDLE_CGI;
-            client.CGI.setEnvValues(client.request, client.serverInfo);
             client.pipeFd = client.CGI.executeCGI(client.request, client.serverInfo);
             struct itimerspec timerValues { };
             if (nChildren == 0) //before first child
@@ -470,6 +579,7 @@ static void readChunkedBody(Client &client, int loop)
         toggleEpollEvents(client.fd, loop, EPOLLOUT);
         return;
     }
+    client.rawReadData.clear();
 }
 
 // void handleSIGCHLD(int)
@@ -493,7 +603,6 @@ static void checkBody(Client &client, int loop)
         {
             std::cout << "BODY CGI" << std::endl;
             client.state = HANDLE_CGI;
-            client.CGI.setEnvValues(client.request, client.serverInfo);
             client.pipeFd = client.CGI.executeCGI(client.request, client.serverInfo);
             struct itimerspec timerValues { };
             if (nChildren == 0) //before first child
@@ -673,7 +782,31 @@ static void handleClientSend(Client &client, int loop)
         return ;
     wslog.writeToLogFile(INFO, "IN SEND", true);
     wslog.writeToLogFile(INFO, "To be sent = " + client.writeBuffer + " to client FD" + std::to_string(client.fd), true);
-    client.bytesWritten = send(client.fd, client.writeBuffer.data(), client.writeBuffer.size(), MSG_DONTWAIT);
+
+     if (client.request.tempFileOpen == true)
+    {
+        client.bytesWritten = send(client.fd, client.CGI.output.data(), client.CGI.output.size(), MSG_DONTWAIT);
+        client.CGI.output.clear();
+    }
+    else
+        client.bytesWritten = send(client.fd, client.writeBuffer.data(), client.writeBuffer.size(), MSG_DONTWAIT);
+    if (client.request.tempFileOpen == true)
+    {
+        if (client.request.BodyFd < 0)
+        {
+            wslog.writeToLogFile(ERROR, "Temporary body file not open", true);
+            return ;
+        }
+        if (client.CGI.cgiReady == false)
+        {
+            handleCGIReadFromFile(client);
+        }
+        else
+        {
+            client.request.tempFileOpen = false;
+            client.request.isCGI = false;
+        }
+    }
     // wslog.writeToLogFile(INFO, "Bytes sent = " + std::to_string(client.bytesWritten), true);
     if (client.bytesWritten <= 0)
     {

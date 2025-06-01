@@ -22,7 +22,10 @@ class HTTPRequest
         std::string pathInfo;
         std::map<std::string, std::string> headers;
         std::string body;
+        std::string tempBodyFile; // Temporary file for large bodies;
         bool isCGI;
+        bool tempFileOpen; // Flag to check if temporary file is open
+        int BodyFd; // File descriptor for the file
         HTTPRequest();
         HTTPRequest(std::string headers, ServerConfig server);
 };

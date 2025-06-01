@@ -13,6 +13,8 @@
 #include "CGIhandler.hpp"
 
 #define READ_BUFFER_SIZE 1000 //nginx has 8192?
+//#define BODY_MEMORY_LIMIT (256 * 1024) // 256KB
+#define BODY_MEMORY_LIMIT 2 // for testing, change to 256 * 1024 later
 
 enum connectionStates {
     IDLE,
