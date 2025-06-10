@@ -26,7 +26,7 @@ request = (
 
 def send_request(client_id):
     try:
-        with socket.create_connection((HOST, PORT), timeout=100) as sock:
+        with socket.create_connection((HOST, PORT), timeout=10) as sock:
             sock.sendall(request)
             response = b''
             while True:
@@ -35,17 +35,15 @@ def send_request(client_id):
                     break
                 response += chunk
         print(f"✅ Client {client_id} finished, received {len(response)} bytes.")
-        # print("\n🔽 Response:")
-        # print(response.decode(errors="replace"))
     except Exception as e:
         print(f"❌ Client {client_id} failed: {e}")
 
 
 def main():
-    client_count = 500  # You can reduce this for testing
+    client_count = 1000  # You can reduce this for testing
     start_time = time.time()
 
-    with multiprocessing.Pool(processes=100) as pool:  # Run up to 100 clients in parallel
+    with multiprocessing.Pool(processes=500) as pool:  # Run up to 100 clients in parallel
         pool.map(send_request, range(client_count))
 
     print(f"\n⏱️ All clients done in {time.time() - start_time:.2f} seconds")
