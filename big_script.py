@@ -17,7 +17,7 @@ request = (
     f"Host: {HOST_NAME}\r\n"
     f"Content-Length: {len(body)}\r\n"
     f"Content-Type: text/plain\r\n"
-    f"Connection: close\r\n"
+    #f"Connection: close\r\n"
     f"\r\n\r\n"
     f"{body}"
 )
