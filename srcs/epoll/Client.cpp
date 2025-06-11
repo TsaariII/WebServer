@@ -2,7 +2,6 @@
 
 static int findOldestClient(std::map<int, Client>& clients) // maybe streamline this function to be more efficient, even at the loss of accuracy
 {
-    //return 0; //!REMOVE LATER
     int oldestClient = 0;
     std::chrono::steady_clock::time_point oldestTimestamp = std::chrono::steady_clock::now();
 
