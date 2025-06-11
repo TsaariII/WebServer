@@ -150,7 +150,7 @@ void EventLoop::startLoop()
                 try {
                     struct epoll_event setup { };
                     Client newClient(loop, fd, clients, servers[fd]);
-                    auto result =  clients.emplace(newClient.fd, std::move(newClient)); //this gives false boolean, if it doesnt overwrite
+                    auto result =  clients.emplace(newClient.fd, std::move(newClient));
                     if (!result.second)
                         throw std::runtime_error("Client insert failed or duplicate fd");
                     newFd = newClient.fd;
