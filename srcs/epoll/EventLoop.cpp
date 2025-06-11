@@ -150,7 +150,7 @@ void EventLoop::startLoop()
                 try {
                     struct epoll_event setup { };
                     Client newClient(loop, fd, clients, servers[fd]);
-                    auto result =  clients.emplace(newClient.fd, std::move(newClient));
+                    auto result =  clients.emplace(newClient.fd, std::move(newClient)); //this gives false boolean, if it doesnt overwrite
                     if (!result.second)
                         throw std::runtime_error("Client insert failed or duplicate fd");
                     newFd = newClient.fd;
@@ -573,7 +573,7 @@ void EventLoop::handleCGI(Client& client)
         client.CGI.collectCGIOutput(client.CGI.getReadPipe());
     }
     pid = waitpid(client.CGI.getChildPid(), &status, WNOHANG);
-    // wslog.writeToLogFile(DEBUG, "Handling CGI for client FD: " + std::to_string(client.fd), true);
+    wslog.writeToLogFile(DEBUG, "Handling CGI for client FD: " + std::to_string(client.fd), true);
     // wslog.writeToLogFile(DEBUG, "client.childPid is: " + std::to_string(client.CGI.getChildPid()), true);
     // wslog.writeToLogFile(DEBUG, "waitpid returned: " + std::to_string(pid), true);
     if (pid == client.CGI.getChildPid())
