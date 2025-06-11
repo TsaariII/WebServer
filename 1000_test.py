@@ -42,7 +42,7 @@ def send_request(client_id):
 
 
 def main():
-    client_count = 1000  # You can reduce this for testing
+    client_count = 500  # You can reduce this for testing
     start_time = time.time()
 
     with multiprocessing.Pool(processes=500) as pool:  # Run up to 100 clients in parallel
