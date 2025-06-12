@@ -888,15 +888,15 @@ void EventLoop::handleClientRecv(Client& client)
                             toggleEpollEvents(client.fd, loop, EPOLLOUT);
                             return ;
                         }
-                        if (client.serverInfo.server_names.empty() == true)
-                        {
-                            client.response.push_back(HTTPResponse(404, "Host name not found"));
-                            client.rawReadData.clear();
-                            client.state = SEND;
-                            client.writeBuffer = client.response.back().toString();
-                            toggleEpollEvents(client.fd, loop, EPOLLOUT);
-                            return ;
-                        }
+                        // if (client.serverInfo.server_names.empty() == true)
+                        // {
+                        //     client.response.push_back(HTTPResponse(404, "Host name not found"));
+                        //     client.rawReadData.clear();
+                        //     client.state = SEND;
+                        //     client.writeBuffer = client.response.back().toString();
+                        //     toggleEpollEvents(client.fd, loop, EPOLLOUT);
+                        //     return ;
+                        // }
                         if (client.serverInfo.routes.find(client.request.location) == client.serverInfo.routes.end())
                         {
                             client.response.push_back(HTTPResponse(404, "Invalid location"));
