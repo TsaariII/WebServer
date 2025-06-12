@@ -35,6 +35,7 @@ class HTTPRequest
         bool multipart;
         bool validHostName;
         bool multipart;
+        bool validHostName;
         HTTPRequest();
         HTTPRequest(std::string headers, ServerConfig server);
 };

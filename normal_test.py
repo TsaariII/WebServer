@@ -28,6 +28,12 @@ request3 = (
     f"\r\n"
 )
 
+request4 = (
+    f"GET /images HTTP/1.1\r\n"
+    f"Connection: close\r\n"
+    f"\r\n"
+)
+
 def run():
     print("\n\n\n---FIRST TEST with dads.com---")
     response_data = b""
@@ -67,6 +73,23 @@ def run():
     response_data = b""
     with socket.create_connection((HOST, PORT)) as sock:
         sock.sendall(request3.encode())
+        total = 0
+        while True:
+            chunk = sock.recv(8192)
+            if not chunk:
+                break
+            response_data += chunk
+            total += len(chunk)
+            print(f"📦 Received {len(chunk)} bytes, total: {total}")
+    
+    print(f"\n✅ Final total received: {total / 1024:.1f} KB")
+    print("\n🔽 Response:")
+    print(response_data.decode(errors="replace"))
+
+    print("\n\n\n---4TH TEST with no host---")
+    response_data = b""
+    with socket.create_connection((HOST, PORT)) as sock:
+        sock.sendall(request4.encode())
         total = 0
         while True:
             chunk = sock.recv(8192)
