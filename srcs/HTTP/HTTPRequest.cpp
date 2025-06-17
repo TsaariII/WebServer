@@ -21,6 +21,7 @@ HTTPRequest::HTTPRequest()
     validHostName = true;
     fileFd = -1;
     query = "";
+    multipart = false;
 }
 
 HTTPRequest::HTTPRequest(std::string headers, ServerConfig server)
@@ -37,6 +38,7 @@ HTTPRequest::HTTPRequest(std::string headers, ServerConfig server)
     validHostName = true;
     fileFd = -1;
     query = "";
+    multipart = false;
     parser(headers, server);
 }
 

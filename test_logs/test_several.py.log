@@ -8,7 +8,7 @@ collected 18 items
 
 tests/cgitest/test_several.py ..................                         [100%]
 
-============================== 18 passed in 9.08s ==============================
+============================== 18 passed in 8.78s ==============================
 ----- End of output for ./tests/cgitest/test_several.py -----
 
 

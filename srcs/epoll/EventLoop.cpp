@@ -812,15 +812,6 @@ void EventLoop::checkBody(Client& client)
         toggleEpollEvents(client.fd, loop, EPOLLOUT);
         return ;
     }
-    if (client.rawReadData.empty() == false)
-    {
-        client.response.push_back(HTTPResponse(501, "Not implemented"));
-        client.writeBuffer = client.response.back().toString();
-        client.state = SEND;
-        toggleEpollEvents(client.fd, loop, EPOLLOUT);
-        return ;
-
-    }
     if (client.request.isCGI == true)
     {
         wslog.writeToLogFile(INFO, "CGI IS TRUE", DEBUG_LOGS);
@@ -961,7 +952,8 @@ void EventLoop::handleClientRecv(Client& client)
                         }
                     }
                 }
-                checkBody(client);
+                if (client.headerString.empty() == false)
+                    checkBody(client);
                 return ;
             }
             case HANDLE_CGI:
@@ -1034,10 +1026,6 @@ void EventLoop::handleClientSend(Client &client)
                     int pos;
                     pos = client.response.back().toString().find("\r\n\r\n");
                     responseheader = client.response.back().toString().substr(0, pos + 4);
-                    //client.response.back().headers.at("Content-Length") = std::to_string(std::filesystem::file_size(client.CGI.tempFileName) - responseheader.size());
-                    wslog.writeToLogFile(ERROR, "response header size " + std::to_string(responseheader.size()), true);
-                    wslog.writeToLogFile(ERROR, "content len " + client.response.back().headers.at("Content-Length"), true);
-                    wslog.writeToLogFile(ERROR, "response header " + responseheader, true);
                 }
                 client.writeBuffer = client.response.back().toString();
             }
