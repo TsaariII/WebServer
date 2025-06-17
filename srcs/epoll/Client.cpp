@@ -1,6 +1,19 @@
 #include "Client.hpp"
+#include "Logger.hpp"
 
-static int findOldestClient(std::map<int, Client>& clients) // maybe streamline this function to be more efficient, even at the loss of accuracy
+#include <map>
+#include <chrono>
+#include <cstring>
+#include <stdexcept>
+#include <string>
+#include <vector>
+
+#include <netinet/in.h>
+#include <sys/socket.h>
+#include <sys/epoll.h>
+#include <unistd.h>
+
+static int findOldestClient(std::map<int, Client>& clients)
 {
     int oldestClient = 0;
     std::chrono::steady_clock::time_point oldestTimestamp = std::chrono::steady_clock::now();
@@ -21,6 +34,7 @@ Client::Client(int loop, int serverSocket, std::map<int, Client>& clients, std::
     this->state = IDLE;
     this->bytesRead = 0;
     this->bytesWritten = 0;
+    this->bytesSent = 0;
     this->previousDataAmount = 0;
     this->chunkBodySize = 0;
     this->erase = false;
@@ -29,7 +43,7 @@ Client::Client(int loop, int serverSocket, std::map<int, Client>& clients, std::
     fd = accept(serverSocket, reinterpret_cast<sockaddr*>(&clientAddress), &clientLen);
     if (fd < 0)
     {
-        if (errno == EMFILE) //max fds reached
+        if (errno == EMFILE)
         {
             int oldFd = findOldestClient(clients);
             wslog.writeToLogFile(INFO, "---CLOSING CLIENT FD" + std::to_string(oldFd) + " PREMATURELY!---", DEBUG_LOGS);
@@ -105,6 +119,7 @@ void Client::reset()
     this->previousDataAmount = 0;
     this->writeBuffer.clear();
     this->headerString.clear();
+    this->response.clear();
     this->bytesRead = 0;
     this->bytesWritten = 0;
     this->response.clear();
@@ -136,14 +151,14 @@ void Client::findCorrectHost(const std::string header, const std::vector<ServerC
             {
                 if (serverString == hostName)
                 {
-                    this->serverInfo = serverConfig; //match found, setting the singular serverInfo with the correct ServerConfig
+                    this->serverInfo = serverConfig;
                     return ;
                 }
             }
         }
-        this->serverInfo = server[0]; //no matches found, just pass the first one. can be changed to 404 later?
+        this->serverInfo = server[0];
         return ;
     }
     else
-        this->serverInfo = server[0]; //no 'Host' found in serverConfigs, likely a badly formatted request, will be caught in the validateHeader()
+        this->serverInfo = server[0];
 }

@@ -14,10 +14,6 @@ int CGIHandler::getReadPipe() { return readCGIPipe[0]; }
 
 int CGIHandler::getChildPid() { return childPid; }
 
-// char* const* CGIHandler::getEnvArray() { return *envArray; }
-
-// char* const* CGIHandler::getExceveArgs() { return *exceveArgs; }
-
 void CGIHandler::setEnvValues(HTTPRequest& request, ServerConfig server)
 {
 	std::string server_name = server.server_names.empty() ? "localhost"
@@ -44,22 +40,18 @@ void CGIHandler::setEnvValues(HTTPRequest& request, ServerConfig server)
 	std::string conLen = request.headers.count("Content-Length") > 0 ? request.headers.at("Content-Length") : "0";
 	envVariables.push_back("CONTENT_LENGTH=" + conLen);
 	for (size_t i = 0; i < envVariables.size(); i++)
-	{
 		envArray[i] = (char *)envVariables.at(i).c_str();
-		//wslog.writeToLogFile(DEBUG, "CGIHandler::setEnvValues envArray[" + std::to_string(i) + "] = " + envVariables.at(i), DEBUG_LOGS);
-	}
 	envArray[envVariables.size()] = NULL;
 	exceveArgs[0] = (char *)server.routes.at(request.location).cgiexecutable.c_str();
 	exceveArgs[1] = absPath;
 	exceveArgs[2] = NULL;
 }
 
-HTTPResponse CGIHandler::generateCGIResponse()
+HTTPResponse CGIHandler::generateCGIResponse(std::map<int, std::string> error_pages)
 {
 	std::string::size_type end = output.find("\r\n\r\n");
-    // wslog.writeToLogFile(DEBUG, output.substr(0, 100), true);
 	if (end == std::string::npos)
-		return HTTPResponse(500, "Invalid CGI output");
+		return HTTPResponse(500, "Invalid CGI output", error_pages);
 	std::string headers = output.substr(0, end);
 	std::string body = output.substr(end + 4);
 	HTTPResponse res(200, "OK");
@@ -74,7 +66,7 @@ HTTPResponse CGIHandler::generateCGIResponse()
 		if (colon != std::string::npos)
 			res.headers[line.substr(0, colon)] = line.substr(colon + 2);
 	}
-	// res.headers["Content-Length"] = std::to_string(res.body.size());
+	wslog.writeToLogFile(INFO, "CGI successful", DEBUG_LOGS);
 	return res;
 }
 
@@ -85,8 +77,6 @@ void CGIHandler::collectCGIOutput(int childReadPipeFd)
     int n = read(childReadPipeFd, buffer, sizeof(buffer));
     if (n > 0)
         output.append(buffer, n);
-    //wslog.writeToLogFile(INFO, "Collected " + std::to_string(n) + " bytes from the child process", DEBUG_LOGS);
-	//wslog.writeToLogFile(INFO, "Size of output = " + std::to_string(output.length()), DEBUG_LOGS);
 }
 
 void CGIHandler::writeBodyToChild(HTTPRequest& request)
@@ -94,7 +84,6 @@ void CGIHandler::writeBodyToChild(HTTPRequest& request)
     int written = write(writeCGIPipe[1], request.body.c_str(), request.body.size());
     if (written > 0) 
         request.body = request.body.substr(written);
-    // wslog.writeToLogFile(INFO, "Written to child pipe: " + std::to_string(written), true);
     if (request.body.empty() == true)
 	{
         close(writeCGIPipe[1]);

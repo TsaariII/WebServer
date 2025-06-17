@@ -1,15 +1,18 @@
 
 #pragma once
 
-#include "Enums.hpp"
 #include "Parser.hpp"
-#include "Logger.hpp"
 #include <string>
-#include <map>
-#include <sstream>
-#include <iostream>
 #include <vector>
-#include <algorithm>
+#include <map>
+
+enum reqTypes
+{
+    GET,
+    POST,
+    DELETE,
+    INVALID
+};
 
 class HTTPRequest
 {

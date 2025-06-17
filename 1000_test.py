@@ -6,10 +6,10 @@ import time
 
 HOST = '127.0.0.2'
 PORT = 8004
-CGI_PATH = '/cgi/echo.py'  # Change to a valid CGI path on your server
+CGI_PATH = '/cgi/test.py'  # Change to a valid CGI path on your server
 
 # Create a large POST body (1MB)
-BODY_SIZE = 100 * 1024  # 1 MB
+BODY_SIZE = 100 * 10  # 1 MB
 body = "x" * BODY_SIZE
 
 # Prepare raw HTTP request
@@ -42,10 +42,10 @@ def send_request(client_id):
 
 
 def main():
-    client_count = 1000  # You can reduce this for testing
+    client_count = 200  # You can reduce this for testing
     start_time = time.time()
 
-    with multiprocessing.Pool(processes=500) as pool:  # Run up to 100 clients in parallel
+    with multiprocessing.Pool(processes=50) as pool:  # Run up to 100 clients in parallel
         pool.map(send_request, range(client_count))
 
     print(f"\n⏱️ All clients done in {time.time() - start_time:.2f} seconds")

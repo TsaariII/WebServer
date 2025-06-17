@@ -1,30 +1,14 @@
 #pragma once
 
-#include "HTTPResponse.hpp"
-#include "Logger.hpp"
-#include "RequestHandler.hpp"
-#include "CGIHandler.hpp"
-#include "Logger.hpp"
-#include "Parser.hpp"
-#include "Client.hpp"
-#include "utils.hpp"
-#include <algorithm>
-#include <csignal>
-#include <cstdlib>
-#include <cstring>
-#include <iostream>
-#include <netdb.h>
-#include <netinet/in.h>
+
+#include <string>
 #include <map>
-#include <queue>
-#include <stdexcept>
-#include <sys/epoll.h>
-#include <sys/eventfd.h>
-#include <sys/timerfd.h>
-#include <sys/socket.h>
-#include <sys/stat.h>
-#include <unistd.h>
 #include <vector>
+#include <sys/epoll.h>
+
+#include "Client.hpp"
+#include "Parser.hpp"
+#include "Logger.hpp"
 
 #define MAX_CONNECTIONS 1024
 #define TIMEOUT 60
@@ -41,8 +25,8 @@ class EventLoop
         int loop;
         int status;
         bool timerOn;
+        
         std::map<int, std::vector<ServerConfig>> servers;
-        //std::map<int, ServerConfig> servers;
         std::map<int, Client> clients;
         int serverSocket;
         std::vector<epoll_event> eventLog;
@@ -55,8 +39,8 @@ class EventLoop
         bool validateRequestMethod(Client &client);
         void startLoop();
         void setTimerValues(int n);
-        void checkTimeouts();//int timerFd, std::map<int, Client>& clients, int& children, int loop);
-        void closeClient(int fd);//Client& client, std::map<int, Client>& clients, int& children, int loop);
+        void checkTimeouts();
+        void closeClient(int fd);
         void createErrorResponse(Client &client, int code, std::string msg, std::string logMsg);
         void handleClientRecv(Client& client);
         void handleClientSend(Client &client);
@@ -64,7 +48,7 @@ class EventLoop
         void checkBody(Client &client);
         void handleCGI(Client& client);
         int  executeCGI(Client& client, ServerConfig server);
-        bool checkMaxSize(Client& client);
+        int  checkMaxSize(Client& client);
         void closeFds();
         ~EventLoop();
 };

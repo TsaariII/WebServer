@@ -10,3 +10,5 @@ ubuntu_tester
 actual.txt
 expected.txt
 test_logs/
+__pycache__/
+.pytest_cache/

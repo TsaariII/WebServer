@@ -1,5 +1,10 @@
 #include "Logger.hpp"
+#include <iostream>
 #include <filesystem>
+#include <chrono>
+#include <ctime>
+#include <sstream>
+#include <iomanip>
 
 Logger::Logger()
 {

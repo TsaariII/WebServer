@@ -1,10 +1,7 @@
-#include "Parser.hpp"
-#include "Logger.hpp"
 #include "EventLoop.hpp"
-#include <sys/socket.h>
-#include <cstring>
-#include <netinet/in.h>
-#include <unistd.h>
+#include "Logger.hpp"
+#include "Parser.hpp"
+#include <iostream>
 
 Logger wslog;
 

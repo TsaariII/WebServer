@@ -1,6 +1,10 @@
 #include "Parser.hpp"
 #include "Logger.hpp"
-#include <unordered_set>
+#include <fstream>
+#include <stack>
+#include <filesystem>
+#include <iostream>
+
 
 Parser::Parser(const std::string& config_file)
 {
@@ -133,7 +137,7 @@ void Parser::parseIndexDirective(const std::string& line, Route& route)
 
 void Parser::parseAutoIndexDirective(const std::string& line, Route& route)
 {
-    size_t pos = line.find("autoindex ");
+    size_t pos = line.find("autoindex ") + 10; //skip "autoindex "
     size_t end_pos = line.find(";");
     std::string onoff = line.substr(pos, end_pos - pos);
     if (onoff.compare("off") == 0)
@@ -206,7 +210,7 @@ void Parser::parseCgiExecutable(const std::string&line, Route& route)
     route.cgiexecutable = line.substr(pos, end_pos - pos);
 }
 
-bool Parser::parseLocationDirective(std::ifstream& file, std::string& line, ServerConfig& server_config)
+bool Parser::parseLocationDirective(std::ifstream& file, std::string& line, ServerConfig& server_config, bool serverMaxBodySizeSet)
 {
     std::unordered_set<std::string> foundkeys;
     Route route{}; // alustaa default arvoihin struktin siksi kaarisulkeet
@@ -309,7 +313,7 @@ bool Parser::parseLocationDirective(std::ifstream& file, std::string& line, Serv
             }
             parseCgiExecutable(line, route);
         }
-        else if (line.find("client_max_body_size "))
+        else if (line.find("client_max_body_size ") != std::string::npos)
         {
             auto result = foundkeys.insert("client_max_body_size");
             if (result.second == false)
@@ -322,7 +326,12 @@ bool Parser::parseLocationDirective(std::ifstream& file, std::string& line, Serv
         }
     }
     if (maxBodySizeSet == false)
-        route.client_max_body_size = server_config.client_max_body_size;
+    {
+        if (serverMaxBodySizeSet == true)
+            route.client_max_body_size = server_config.client_max_body_size;
+        else
+            route.client_max_body_size = DEFAULT_MAX_BODY_SIZE;
+    }
     server_config.routes[route.path] = route;
     return true;
 }
@@ -642,7 +651,7 @@ bool Parser::parseConfigFile(const std::string& config_file)
                 }
                 else if (line.find("location /") != std::string::npos)
                 {
-                   if (parseLocationDirective(file, line, server_config) == false)
+                   if (parseLocationDirective(file, line, server_config, maxBodySizeSet) == false)
                        return false;
                 }
                 else if (line.find("client_max_body_size ") != std::string::npos)

@@ -1,10 +1,7 @@
 #pragma once
+
 #include <fstream>
-#include <iostream>
-#include <chrono>
-#include <ctime>
-#include <sstream>
-#include <iomanip>
+#include <string>
 
 #define RED 	"\033[31m"
 #define GREEN	"\033[32m"
@@ -30,8 +27,8 @@ class Logger
         std::ofstream logstream;
     public:
         Logger();
-        Logger(const Logger& src) = delete; // Disable copy constructor
-        Logger& operator=(const Logger& src) = delete; // Disable copy assignment operator
+        Logger(const Logger& src) = delete;
+        Logger& operator=(const Logger& src) = delete;
         ~Logger();
         std::string get_current_time_string();
         void writeToLogFile(LoggerStatus status, const std::string message, bool toTerminal);

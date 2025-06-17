@@ -1,11 +1,13 @@
 
 #include "HTTPResponse.hpp"
+#include <unordered_map>
+#include <fstream>
+#include <iostream>
 
-
-HTTPResponse::HTTPResponse(int code, const std::string& msg) : status(code), stat_msg(msg)
+HTTPResponse::HTTPResponse(int code, const std::string& msg, std::map<int, std::string> error_pages) : status(code), stat_msg(msg)
 {
     if (code >= 300 && code <= 308) generateRedirectResponse(code, msg);
-    if (code >= 400) generateErrorResponse(code, msg);
+    if (code >= 400) generateErrorResponse(code, msg, error_pages);
 }
 
 std::string HTTPResponse::toString() const
@@ -34,13 +36,10 @@ void HTTPResponse::generateRedirectResponse(int code,const std::string& newLocat
 {
     static std::unordered_map<int, std::string> statusMessages =
     {
-    // {300, "Multiple Choices"},
-    {301, "Moved Permanently"},
-    {302, "Found"},
-    // {303, "See Other"},
-    // {304, "Not Modified"},
-    {307, "Temporary Redirect"},
-    {308, "Permanent Redirect"},
+        {301, "Moved Permanently"},
+        {302, "Found"},
+        {307, "Temporary Redirect"},
+        {308, "Permanent Redirect"},
     };
     headers["Location"] = newLocation;
     body = "<html><head><title>" + std::to_string(code) + " " + stat_msg + "</title></head>"
@@ -49,37 +48,44 @@ void HTTPResponse::generateRedirectResponse(int code,const std::string& newLocat
     headers["Content-Length"] = std::to_string(body.size());
 }
 
-void HTTPResponse::generateErrorResponse(int code, const std::string& msg)
+void HTTPResponse::generateErrorResponse(int code, const std::string& msg, std::map<int, std::string> error_pages)
 {
-       static std::unordered_map<int, std::string> statusMessages =
-       {
-        {400, "Bad Request"},
-        {405, "Method Not Allowed"},
-        {403, "Forbidden"},
-        {404, "Not Found"},
-        {408, "Request Timeout"},
-        {413, "Payload Too Large"},
-        {414, "URI Too Long"},
-        {415, "Unsupported Media Type"},
-        {422, "Unprocessable Entity"},
-        {429, "Too Many Requests"},
-        {431, "Request Header Fields Too Large"},
-        {451, "Unavailable For Legal Reasons"},
-        {500, "Internal Server Error"},
-        {501, "Not Implemented"},
-        {503, "Service Unavailable"}
-       };
+        if (error_pages.find(code) != error_pages.end())
+        {
+            std::string filepath = "." + error_pages[code];
+            std::ifstream file(filepath);
+            char buffer[7000];
+            file.read(buffer, 7000);
+            body = std::string(buffer);
+            headers["Content-Type"] = "text/html; charset=UTF-8";
+            headers["Content-Length"] = std::to_string(body.size());
+            return;
+        }
+        static std::unordered_map<int, std::string> statusMessages =
+        {
+            {400, "Bad Request"},
+            {405, "Method Not Allowed"},
+            {403, "Forbidden"},
+            {404, "Not Found"},
+            {408, "Request Timeout"},
+            {413, "Payload Too Large"},
+            {414, "URI Too Long"},
+            {415, "Unsupported Media Type"},
+            {422, "Unprocessable Entity"},
+            {429, "Too Many Requests"},
+            {431, "Request Header Fields Too Large"},
+            {451, "Unavailable For Legal Reasons"},
+            {500, "Internal Server Error"},
+            {501, "Not Implemented"},
+            {503, "Service Unavailable"}
+        };
 
-       std::string reason;
-       if (statusMessages.find(code) != statusMessages.end())
-       {
-        reason = statusMessages[code];
-       }
-       else
-       {
-        reason = "Unknown Error";
-       }
-       body = "<html><head><title>" + std::to_string(code) + " " + reason +
+        std::string reason;
+        if (statusMessages.find(code) != statusMessages.end())
+            reason = statusMessages[code];
+        else
+            reason = "Unknown Error";
+        body = "<html><head><title>" + std::to_string(code) + " " + reason +
             "</title></head><body><h1>" + std::to_string(code) + " " + reason +
             "</h1><p>The server encountered an error: " + msg + ".</p></body></html>";
 

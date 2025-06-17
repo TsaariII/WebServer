@@ -1,7 +1,0 @@
-HTTP/1.1 200 OK
-Content-Length: 31
-Content-Type: application/x-www-form-urlencoded
-Method: POST
-Query: 
-
-Body:username=test&password=123

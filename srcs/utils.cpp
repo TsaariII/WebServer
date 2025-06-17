@@ -1,7 +1,8 @@
-#include "HTTPRequest.hpp"
 #include "utils.hpp"
-#include <filesystem>
 #include "Logger.hpp"
+#include <filesystem>
+#include <string>
+#include <vector>
 
 std::atomic<int> signum = 0;
 
