@@ -11,7 +11,7 @@
 #include "Logger.hpp"
 
 #define MAX_CONNECTIONS 1024
-#define TIMEOUT 60
+#define TIMEOUT 10
 #define CHILD_CHECK 1
 #define DEFAULT_MAX_HEADER_SIZE 8192
 #define DEBUG_LOGS false

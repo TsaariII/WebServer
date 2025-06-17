@@ -1022,7 +1022,6 @@ void EventLoop::handleClientSend(Client &client)
                 {
                     if (epoll_ctl(loop, EPOLL_CTL_DEL, client.fd, nullptr) < 0)
                         throw std::runtime_error("check connection epoll_ctl DEL failed in SEND::close");
-                    wslog.writeToLogFile(DEBUG, "Closing client FD" + std::to_string(client.fd) + " because of close header", true);
                     close(client.fd);
                     clients.erase(client.fd);
                     wslog.writeToLogFile(INFO, "Closing client FD because of close header" + std::to_string(client.fd), DEBUG_LOGS);

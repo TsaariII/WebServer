@@ -614,10 +614,8 @@ bool Parser::validateFile(const std::string& config_file)
 bool Parser::parseConfigFile(const std::string& config_file)
 {
     std::unordered_set<std::string> foundkeys;
-     // Validate file
      if (!validateFile(config_file))
         return false;
-
     std::ifstream file(config_file);
     if (!file.is_open())
     {
