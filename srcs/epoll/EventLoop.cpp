@@ -81,7 +81,6 @@ EventLoop::EventLoop(std::vector<ServerConfig> serverConfigs) : eventLog(MAX_CON
                     throw std::runtime_error("serverSocket epoll_ctl ADD failed");
                 servers[serverSocket].push_back(serverConfigs[i]);
                 wslog.writeToLogFile(INFO, "Created a server with FD" + std::to_string(serverSocket), true);
-                usedFDs.push_back(serverSocket);
             }
         }
         catch (const std::bad_alloc& e)
@@ -90,28 +89,11 @@ EventLoop::EventLoop(std::vector<ServerConfig> serverConfigs) : eventLog(MAX_CON
             continue ;
         }
     }
-    timerFD = timerfd_create(CLOCK_MONOTONIC, TFD_NONBLOCK);
-    if (timerFD < 0)
-        std::runtime_error("failed to create timerfd");
-    setup.data.fd = timerFD;
-    if (epoll_ctl(loop, EPOLL_CTL_ADD, timerFD, &setup) < 0)
-        throw std::runtime_error("Failed to add timerFd to epoll");
-    timerOn = false;
-    wslog.writeToLogFile(INFO, "Creating Childtimer", DEBUG_LOGS);
-    childTimerFD = timerfd_create(CLOCK_MONOTONIC, TFD_NONBLOCK);
-    if (childTimerFD < 0)
-        std::runtime_error("failed to create childTimerFD");
-    setup.data.fd = childTimerFD;
-    if (epoll_ctl(loop, EPOLL_CTL_ADD, childTimerFD, &setup) < 0)
-        throw std::runtime_error("Failed to add childTimerFD to epoll");
-    usedFDs.push_back(timerFD);
-    usedFDs.push_back(childTimerFD);
+
 }
 
 void EventLoop::closeFds()
 {
-    close(timerFD);
-    close(childTimerFD);
     close(loop);
     for (auto& server : servers)
         close(server.first);
@@ -141,15 +123,23 @@ static void handleErrorMessages(std::string errorMessage, std::map<int, Client>&
     }
 }
 
+void EventLoop::timestamp()
+{
+    std::chrono::steady_clock::time_point now = std::chrono::steady_clock::now();
+    if (clients.empty() == false && now > lastTimeoutCheck + std::chrono::seconds(TIMEOUT + 1))
+        checkTimeouts();
+    if (clients.empty() == false && nChildren > 0 && now > lastChildrenCheck + std::chrono::seconds(CHILD_CHECK))
+        checkChildrenStatus();
+};
+
 void EventLoop::startLoop()
 {
     wslog.writeToLogFile(INFO, "Webserver ready", true);
-    // int n = 0;
+    lastChildrenCheck = std::chrono::steady_clock::now();
     while (signum == 0)
     {
-        int nReady = epoll_wait(loop, eventLog.data(), MAX_CONNECTIONS, -1);
-        // std::cout << "iteration: " << n << std::endl;
-        // n++;
+        timestamp();
+        int nReady = epoll_wait(loop, eventLog.data(), MAX_CONNECTIONS, 1000);
         if (nReady == -1)
         {
             if (errno == EINTR)
@@ -163,6 +153,7 @@ void EventLoop::startLoop()
             else
                 throw std::runtime_error("epoll_wait failed");
         }
+        timestamp();
         for (int i = 0; i < nReady; i++)
         {
             int fd = eventLog[i].data.fd;
@@ -170,6 +161,8 @@ void EventLoop::startLoop()
             if (servers.find(fd) != servers.end())
             {
                 try {
+                    if (clients.empty() == true)
+                        lastTimeoutCheck = std::chrono::steady_clock::now();
                     struct epoll_event setup { };
                     Client newClient(loop, fd, clients, servers[fd]);
                     auto result =  clients.emplace(newClient.fd, std::move(newClient));
@@ -180,9 +173,7 @@ void EventLoop::startLoop()
                     setup.events = EPOLLIN;
                     if (epoll_ctl(loop, EPOLL_CTL_ADD, newClient.fd, &setup) < 0)
                         throw std::runtime_error("newClient epoll_ctl ADD failed");
-                    if (timerOn == false)
-                        setTimerValues(1);
-                    usedFDs.push_back(newFd);
+                    wslog.writeToLogFile(INFO, "Connecting a new client FD" + std::to_string(newClient.fd), true);
                 }
                 catch (const std::bad_alloc& e)
                 {
@@ -195,22 +186,6 @@ void EventLoop::startLoop()
                     handleErrorMessages(errorMessage, clients, newFd);
                     continue ;
                 }
-            }
-            else if (fd == timerFD)
-            {
-                if (clients.empty())
-                    setTimerValues(2);
-                else
-                {
-                    wslog.writeToLogFile(INFO, "Checking timeouts", DEBUG_LOGS);
-                    checkTimeouts();
-                }
-            }
-            else if (fd == childTimerFD)
-            {
-                checkChildrenStatus();
-                if (nChildren == 0)
-                    setTimerValues(3); 
             }
             else if (clients.find(fd) != clients.end())
             {
@@ -230,37 +205,10 @@ void EventLoop::startLoop()
     }
 }
 
-void EventLoop::setTimerValues(int n)
-{
-    if (n == 1)
-    {
-        timerValues.it_value.tv_sec = TIMEOUT;
-        timerValues.it_interval.tv_sec = TIMEOUT / 2; 
-        timerfd_settime(timerFD, 0, &timerValues, 0);
-        timerOn = true;
-    }
-    else if (n == 2)
-    {;
-        nChildren = 0;
-        timerValues.it_value.tv_sec = 0;
-        timerValues.it_interval.tv_sec = 0;
-        timerfd_settime(timerFD, 0, &timerValues, 0);
-        timerOn = false;
-    }
-    if (n == 3)
-    {
-        timerValues.it_value.tv_sec = 0;
-        timerValues.it_interval.tv_sec = 0;
-        timerfd_settime(childTimerFD, 0, &timerValues, 0);
-    }
-}
-
 void EventLoop::checkTimeouts()
 {
-    uint64_t tempBuffer;
-    ssize_t bytesRead = read(timerFD, &tempBuffer, sizeof(tempBuffer));
-    if (bytesRead != sizeof(tempBuffer))
-        throw std::runtime_error("timerfd recv failed");
+    wslog.writeToLogFile(INFO, "Checking timeouts", true);
+    lastTimeoutCheck = std::chrono::steady_clock::now();
     std::chrono::steady_clock::time_point now = std::chrono::steady_clock::now();
     for (auto it = clients.begin(); it != clients.end();)
     {
@@ -308,7 +256,7 @@ void EventLoop::checkTimeouts()
 
 void EventLoop::createErrorResponse(Client &client, int code, std::string msg, std::string logMsg)
 {
-     wslog.writeToLogFile(ERROR, std::to_string(code) + " " + logMsg, DEBUG_LOGS);
+    wslog.writeToLogFile(ERROR, "Client FD" + std::to_string(client.fd) + logMsg, true);
     client.response.push_back(HTTPResponse(code, msg, client.serverInfo.error_pages));
     client.writeBuffer = client.response.back().toString();
     client.bytesWritten = send(client.fd, client.writeBuffer.data(), client.writeBuffer.size(), MSG_DONTWAIT | MSG_NOSIGNAL);
@@ -327,18 +275,15 @@ void EventLoop::closeClient(int fd)
 
 void EventLoop::checkChildrenStatus()
 {
+    lastChildrenCheck = std::chrono::steady_clock::now();
     if (clients.empty() == true)
-    {
         nChildren = 0;
-        setTimerValues(3);
-    }
-    uint64_t tempBuffer;
-    read(childTimerFD, &tempBuffer, sizeof(tempBuffer));
     for (auto it = clients.begin(); it != clients.end(); ++it)
     {
         auto& client = it->second;
         if (nChildren > 0 && client.request.isCGI == true)
         {
+            wslog.writeToLogFile(INFO, "Checking children status for client FD" + std::to_string(it->first), true);
             handleClientRecv(client);
             continue ;
         }
@@ -527,8 +472,6 @@ int EventLoop::executeCGI(Client& client, ServerConfig server)
 		closeFds();
         dup2(client.CGI.writeCGIPipe[0], STDIN_FILENO);
         dup2(client.CGI.readCGIPipe[1], STDOUT_FILENO);
-        usedFDs.push_back(client.CGI.writeCGIPipe[0]);
-        usedFDs.push_back(client.CGI.readCGIPipe[1]);
 		if (!client.request.fileUsed)
 		{
             if (client.CGI.writeCGIPipe[1] != -1)
@@ -555,8 +498,6 @@ int EventLoop::executeCGI(Client& client, ServerConfig server)
 		flags = fcntl(client.CGI.readCGIPipe[0], F_GETFL);
 		fcntl(client.CGI.readCGIPipe[0], F_SETFL, flags | O_NONBLOCK);
 	}
-    usedFDs.push_back(client.CGI.writeCGIPipe[1]);
-    usedFDs.push_back(client.CGI.readCGIPipe[0]);
 	return 0;
 }
 
@@ -798,12 +739,6 @@ void EventLoop::checkBody(Client& client)
             toggleEpollEvents(client.fd, loop, EPOLLOUT);
             return ;
         }
-        if (nChildren == 0)
-        {
-            timerValues.it_value.tv_sec = CHILD_CHECK;
-            timerValues.it_interval.tv_sec = CHILD_CHECK;
-            timerfd_settime(childTimerFD, 0, &timerValues, 0);
-        }
         nChildren++;
         handleCGI(client);
         return ;
@@ -846,7 +781,7 @@ void EventLoop::handleClientRecv(Client& client)
                 if (client.bytesRead <= 0)
                 {
                     if (client.bytesRead == 0)
-                        wslog.writeToLogFile(INFO, "Client disconnected FD" + std::to_string(client.fd), DEBUG_LOGS);
+                        wslog.writeToLogFile(INFO, "Client FD" + std::to_string(client.fd) + " disconnected", true);
                     if (epoll_ctl(loop, EPOLL_CTL_DEL, client.fd, nullptr) < 0)
                     {
                         std::cout << "errno = " << errno << std::endl;
@@ -1013,6 +948,7 @@ void EventLoop::handleClientSend(Client &client)
         client.writeBuffer.erase(0, client.bytesWritten);
         if (checkBytesSent(client) == true)
         {
+            wslog.writeToLogFile(DEBUG, "Response sent to client FD" + std::to_string(client.fd), true);
             client.response.pop_back();
             if (client.request.headers.find("Connection") != client.request.headers.end())
                 checkConnection = client.request.headers.at("Connection");
@@ -1022,10 +958,9 @@ void EventLoop::handleClientSend(Client &client)
                 {
                     if (epoll_ctl(loop, EPOLL_CTL_DEL, client.fd, nullptr) < 0)
                         throw std::runtime_error("check connection epoll_ctl DEL failed in SEND::close");
-                    wslog.writeToLogFile(DEBUG, "Closing client FD" + std::to_string(client.fd) + " because of close header", true);
+                    wslog.writeToLogFile(DEBUG, "Closing client FD" + std::to_string(client.fd) + " because of connection: close", true);
                     close(client.fd);
                     clients.erase(client.fd);
-                    wslog.writeToLogFile(INFO, "Closing client FD because of close header" + std::to_string(client.fd), DEBUG_LOGS);
                 }
                 else
                 {
@@ -1046,10 +981,9 @@ void EventLoop::handleClientSend(Client &client)
             {
                 if (epoll_ctl(loop, EPOLL_CTL_DEL, client.fd, nullptr) < 0)
                     throw std::runtime_error("check connection epoll_ctl DEL failed in SEND::erase");
-                wslog.writeToLogFile(DEBUG, "Closing client FD" + std::to_string(client.fd) + " because erase is true", true);
+                wslog.writeToLogFile(DEBUG, "Closing client FD" + std::to_string(client.fd) + " because erase = true", true);
                 close(client.fd);
                 clients.erase(client.fd);
-                wslog.writeToLogFile(INFO, "Closing client FD because of http1.1" + std::to_string(client.fd), DEBUG_LOGS);
             }
             else
             {

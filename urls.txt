@@ -1,5 +1,0 @@
-http://127.0.0.2:8004/cgi/test.py POST
-Host: dads.fi
-Content-Type: text/plain
-
-123

@@ -19,12 +19,9 @@
 class EventLoop
 {
     public:
-        int timerFD;
         int nChildren;
-        int childTimerFD;
         int loop;
         int status;
-        bool timerOn;
         
         std::map<int, std::vector<ServerConfig>> servers;
         std::map<int, Client> clients;
@@ -33,12 +30,13 @@ class EventLoop
         struct itimerspec timerValues;
         pid_t pid;
         std::string checkConnection;
-        std::vector<int> usedFDs;
+        std::chrono::steady_clock::time_point lastTimeoutCheck;
+        std::chrono::steady_clock::time_point lastChildrenCheck;
 
         EventLoop(std::vector<ServerConfig> serverConfigs);
         bool validateRequestMethod(Client &client);
         void startLoop();
-        void setTimerValues(int n);
+        void timestamp();
         void checkTimeouts();
         void closeClient(int fd);
         void createErrorResponse(Client &client, int code, std::string msg, std::string logMsg);
