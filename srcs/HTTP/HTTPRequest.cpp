@@ -130,21 +130,20 @@ void HTTPRequest::parser(std::string raw, ServerConfig server)
         query = path.substr(query_pos + 1);
         path = path.substr(0, query_pos);
     }
-    std::vector<std::string> matches;
+    int pos1 = path.find_first_of("/");
+    int pos2 = path.find_last_of("/");
+    std::string locationfrompath;
+    if (pos1 == pos2)
+        locationfrompath = "/";
+    else
+        locationfrompath = path.substr(pos1, 1 + pos2 - pos1);
     for (auto it = server.routes.begin(); it != server.routes.end(); ++it)
     {
-        if (path.find(it->first) != std::string::npos)
-            matches.push_back(it->first);
-    }
-    auto it = std::max_element(matches.begin(), matches.end(), [](const std::string& a, const std::string& b) {
-        return a.length() < b.length();
-    });
-    if (it == matches.end())
-        location = "";
-    else
-    {
-        location = *it;
-        file = path.substr(0 + location.size());
+        if (it->first == locationfrompath)
+        {
+            location = it->first;
+            file = path.substr(0 + location.size());
+        }
     }
     if (headers.find("Content-Type") != headers.end())
     {
